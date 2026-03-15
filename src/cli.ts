@@ -17,6 +17,7 @@ program
   .option('-s, --style <type>', 'Commit style: conventional or simple', 'conventional')
   .option('-l, --language <lang>', 'Message language (en, tr, etc.)', 'en')
   .option('-e, --emoji', 'Include emoji in commit message')
+  .option('--scope <name>', 'Override commit scope (e.g., auth, api, ui)')
   .option('-y, --yes', 'Auto-commit without confirmation')
   .option('-n, --dry-run', 'Generate message but don\'t commit')
   .option('-r, --regenerate', 'Keep regenerating until satisfied')
@@ -40,6 +41,7 @@ program
       style: options.style || config.style || 'conventional',
       language: options.language || config.language || 'en',
       emoji: options.emoji || config.emoji || false,
+      scope: options.scope,
     };
 
     console.log('');
