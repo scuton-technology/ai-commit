@@ -42,3 +42,13 @@ export function getRecentCommits(count: number = 5): string[] {
     return [];
   }
 }
+
+export function getRepoName(): string | undefined {
+  try {
+    const output = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: 'pipe' });
+    const path = output.trim();
+    return path.split('/').pop();
+  } catch {
+    return undefined;
+  }
+}

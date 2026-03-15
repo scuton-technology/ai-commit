@@ -3,8 +3,9 @@
 import { Command } from 'commander';
 import { generateCommitMessage } from './core/generate.js';
 import { gitCommit, openEditor } from './core/commit.js';
-import { isGitRepo, getStagedFiles } from './lib/git.js';
+import { isGitRepo, getStagedFiles, getRepoName } from './lib/git.js';
 import { loadConfig, saveConfig } from './lib/config.js';
+import { addToHistory, getHistory, toggleFavorite, clearHistory, getById } from './lib/history.js';
 import { Spinner, box, prompt, red, green, yellow, cyan, bold, gray, dim } from './lib/ui.js';
 
 const program = new Command();
@@ -68,6 +69,8 @@ program
         }
 
         if (options.yes) {
+          const repo = getRepoName();
+          addToHistory(message, provider, mergedOptions.style, mergedOptions.language, repo);
           gitCommit(message);
           console.log(green('  ✓ Committed!\n'));
           accepted = true;
@@ -75,12 +78,16 @@ program
           const answer = await prompt(`  ${bold('Use this message?')} ${gray('(Y/n/e)')} `);
 
           if (answer === '' || answer === 'y' || answer === 'yes') {
+            const repo = getRepoName();
+            addToHistory(message, provider, mergedOptions.style, mergedOptions.language, repo);
             gitCommit(message);
             console.log(green('\n  ✓ Committed!\n'));
             accepted = true;
           } else if (answer === 'e' || answer === 'edit') {
             const edited = openEditor(message);
             if (edited) {
+              const repo = getRepoName();
+              addToHistory(edited, provider, mergedOptions.style, mergedOptions.language, repo);
               gitCommit(edited);
               console.log(green('\n  ✓ Committed with edited message!\n'));
             } else {
@@ -129,6 +136,86 @@ program
     if (options.emoji) config.emoji = true;
     saveConfig(config);
     console.log(green('\n  ✓ Config saved to ~/.ai-commit.json\n'));
+  });
+
+// History command
+program
+  .command('history')
+  .description('View commit message history')
+  .option('-l, --limit <number>', 'Number of entries to show', '10')
+  .option('-f, --favorites', 'Show only favorites')
+  .option('--clear', 'Clear history (keeps favorites)')
+  .option('--clear-all', 'Clear all history including favorites')
+  .option('--favorite <id>', 'Toggle favorite status for an entry')
+  .option('--use <id>', 'Use a message from history')
+  .action((options) => {
+    if (options.clearAll) {
+      clearHistory(false);
+      console.log(green('\n  ✓ All history cleared\n'));
+      return;
+    }
+
+    if (options.clear) {
+      clearHistory(true);
+      console.log(green('\n  ✓ History cleared (favorites kept)\n'));
+      return;
+    }
+
+    if (options.favorite) {
+      const isFavorite = toggleFavorite(options.favorite);
+      console.log(green(`\n  ✓ ${isFavorite ? 'Added to' : 'Removed from'} favorites\n`));
+      return;
+    }
+
+    if (options.use) {
+      const entry = getById(options.use);
+      if (!entry) {
+        console.error(red('\n  ✖ Entry not found\n'));
+        process.exit(1);
+      }
+      if (!isGitRepo()) {
+        console.error(red('\n  ✖ Not a git repository\n'));
+        process.exit(1);
+      }
+      const stagedFiles = getStagedFiles();
+      if (stagedFiles.length === 0) {
+        console.error(yellow('\n  ⚠ No staged changes\n'));
+        process.exit(1);
+      }
+      gitCommit(entry.message);
+      console.log(green('\n  ✓ Committed with message from history!\n'));
+      return;
+    }
+
+    const limit = parseInt(options.limit);
+    const entries = getHistory(limit, options.favorites);
+
+    if (entries.length === 0) {
+      console.log(gray('\n  No history entries\n'));
+      return;
+    }
+
+    console.log('');
+    console.log(bold(`  Commit Message History ${options.favorites ? '(Favorites)' : ''}`));
+    console.log(gray(`  ~/.ai-commit-history.json`));
+    console.log('');
+
+    entries.forEach((entry, index) => {
+      const date = new Date(entry.timestamp).toLocaleString();
+      const star = entry.favorite ? yellow('★') : gray('☆');
+      console.log(`  ${star} ${cyan(entry.id.substring(0, 8))} ${dim(date)}`);
+      if (entry.repo) console.log(gray(`    Repo: ${entry.repo}`));
+      console.log(gray(`    Provider: ${entry.provider} | Style: ${entry.style} | Lang: ${entry.language}`));
+      console.log(`    ${entry.message.split('\n')[0]}`);
+      if (entry.message.split('\n').length > 1) {
+        console.log(dim(`    ... (${entry.message.split('\n').length} lines)`));
+      }
+      console.log('');
+    });
+
+    console.log(dim(`  Use: aic history --use <id>`));
+    console.log(dim(`  Favorite: aic history --favorite <id>`));
+    console.log('');
   });
 
 // Hook command
