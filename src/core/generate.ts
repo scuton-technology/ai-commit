@@ -9,6 +9,7 @@ export interface GenerateOptions {
   style?: 'conventional' | 'simple';
   language?: string;
   emoji?: boolean;
+  scope?: string;
 }
 
 export function getProvider(name?: ProviderName): AIProvider {

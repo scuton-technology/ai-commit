@@ -1,11 +1,16 @@
 import type { DiffAnalysis } from './diff.js';
 import { getRecentCommits } from '../lib/git.js';
 
-export function buildPrompt(analysis: DiffAnalysis, options?: { style?: string; language?: string; emoji?: boolean }): string {
+export function buildPrompt(analysis: DiffAnalysis, options?: { style?: string; language?: string; emoji?: boolean; scope?: string }): string {
   const recentCommits = getRecentCommits(5);
   const style = options?.style || 'conventional';
   const language = options?.language || 'en';
   const emoji = options?.emoji ?? false;
+  const scope = options?.scope;
+
+  const scopeInstruction = scope 
+    ? `- Scope: use "${scope}" (manually specified)`
+    : '- Scope: infer from file paths (e.g., auth, api, ui, config)';
 
   return `You are a git commit message generator. Analyze the diff and generate a professional commit message.
 
@@ -16,7 +21,7 @@ RULES:
 - ${emoji ? 'Include a relevant emoji at the start of the description' : 'No emojis'}
 - If multiple changes, add bullet points in the body
 - Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore
-- Scope: infer from file paths (e.g., auth, api, ui, config)
+${scopeInstruction}
 - Do NOT include the diff in the message
 - Do NOT explain what a commit message is
 - Output ONLY the commit message, nothing else
