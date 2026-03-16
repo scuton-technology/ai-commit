@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { generateCommitMessage } from './core/generate.js';
+import { generateCommitMessages, generateCommitMessage } from './core/generate.js';
 import { gitCommit, openEditor } from './core/commit.js';
 import { isGitRepo, getStagedFiles } from './lib/git.js';
-import { loadConfig, saveConfig } from './lib/config.js';
-import { Spinner, box, prompt, red, green, yellow, cyan, bold, gray, dim } from './lib/ui.js';
+import { loadConfig, saveConfig, getConfigPath } from './lib/config.js';
+import { Spinner, selectCommitMessage, red, green, yellow, cyan, gray, dim } from './lib/ui.js';
 
 const program = new Command();
 
@@ -13,13 +13,13 @@ program
   .name('aic')
   .description('AI-powered git commit message generator')
   .version('1.0.0')
-  .option('-p, --provider <name>', 'AI provider: anthropic or openai')
+  .option('-p, --provider <name>', 'AI provider: anthropic, openai, or ollama')
   .option('-s, --style <type>', 'Commit style: conventional or simple', 'conventional')
   .option('-l, --language <lang>', 'Message language (en, tr, etc.)', 'en')
   .option('-e, --emoji', 'Include emoji in commit message')
-  .option('-y, --yes', 'Auto-commit without confirmation')
-  .option('-n, --dry-run', 'Generate message but don\'t commit')
-  .option('-r, --regenerate', 'Keep regenerating until satisfied')
+  .option('-y, --yes', 'Auto-commit best suggestion without selection')
+  .option('-n, --dry-run', 'Generate messages but don\'t commit')
+  .option('-c, --count <number>', 'Number of suggestions (1-5)', '3')
   .action(async (options) => {
     if (!isGitRepo()) {
       console.error(red('\n  ✖ Not a git repository\n'));
@@ -35,11 +35,13 @@ program
     }
 
     const config = loadConfig();
+    const count = Math.min(5, Math.max(1, parseInt(options.count) || 3));
     const mergedOptions = {
       provider: options.provider || config.provider,
       style: options.style || config.style || 'conventional',
       language: options.language || config.language || 'en',
       emoji: options.emoji || config.emoji || false,
+      count,
     };
 
     console.log('');
@@ -49,37 +51,57 @@ program
 
     while (!accepted) {
       const spinner = new Spinner();
-      spinner.start('Generating commit message...');
+      spinner.start('Generating commit suggestions...');
 
       try {
-        const { message, provider } = await generateCommitMessage(mergedOptions);
+        // Auto-commit mode: single message, no selection
+        if (options.yes) {
+          const { message, provider } = await generateCommitMessage(mergedOptions);
+          spinner.stop();
+          console.log('');
+          console.log(gray(`  Provider: ${provider}`));
+          console.log('');
+
+          if (options.dryRun) {
+            console.log(`  ${message}\n`);
+            console.log(dim('  Dry run — message not committed.\n'));
+            process.exit(0);
+          }
+
+          gitCommit(message);
+          console.log(green(`  ✓ Committed: ${message.split('\n')[0]}\n`));
+          accepted = true;
+          continue;
+        }
+
+        // Interactive mode: multiple suggestions with inquirer selection
+        const { messages, provider } = await generateCommitMessages(mergedOptions);
         spinner.stop();
 
         console.log('');
-        console.log(gray(`  Provider: ${provider}`));
-        console.log('');
-        console.log('  Suggested commit message:');
-        console.log(box(message).split('\n').map(l => '  ' + l).join('\n'));
+        console.log(gray(`  Provider: ${provider} · ${messages.length} suggestion${messages.length > 1 ? 's' : ''}`));
         console.log('');
 
         if (options.dryRun) {
+          messages.forEach((msg, i) => {
+            console.log(`  ${i + 1}. ${msg}`);
+          });
+          console.log('');
           console.log(dim('  Dry run — message not committed.\n'));
           process.exit(0);
         }
 
-        if (options.yes) {
-          gitCommit(message);
-          console.log(green('  ✓ Committed!\n'));
-          accepted = true;
-        } else {
-          const answer = await prompt(`  ${bold('Use this message?')} ${gray('(Y/n/e)')} `);
+        const result = await selectCommitMessage(messages);
 
-          if (answer === '' || answer === 'y' || answer === 'yes') {
-            gitCommit(message);
-            console.log(green('\n  ✓ Committed!\n'));
+        switch (result.action) {
+          case 'commit':
+            gitCommit(result.message);
+            console.log(green(`\n  ✓ Committed: ${result.message.split('\n')[0]}\n`));
             accepted = true;
-          } else if (answer === 'e' || answer === 'edit') {
-            const edited = openEditor(message);
+            break;
+
+          case 'edit': {
+            const edited = openEditor(result.message);
             if (edited) {
               gitCommit(edited);
               console.log(green('\n  ✓ Committed with edited message!\n'));
@@ -87,14 +109,16 @@ program
               console.log(yellow('\n  ⚠ Empty message — commit aborted.\n'));
             }
             accepted = true;
-          } else if (answer === 'n' || answer === 'no') {
+            break;
+          }
+
+          case 'regenerate':
             console.log(yellow('\n  ↻ Regenerating...\n'));
-          } else if (answer === 'q' || answer === 'quit') {
+            break;
+
+          case 'abort':
             console.log(dim('\n  Aborted.\n'));
             process.exit(0);
-          } else {
-            console.log(yellow('\n  ↻ Regenerating...\n'));
-          }
         }
       } catch (err: any) {
         spinner.stop();
@@ -108,15 +132,17 @@ program
 program
   .command('config')
   .description('Set default configuration')
-  .option('-p, --provider <name>', 'Default AI provider')
+  .option('-p, --provider <name>', 'Default AI provider (anthropic, openai, ollama)')
   .option('-s, --style <type>', 'Default commit style')
   .option('-l, --language <lang>', 'Default language')
   .option('-e, --emoji', 'Enable emoji by default')
+  .option('--ollama-model <model>', 'Default Ollama model')
+  .option('--ollama-host <url>', 'Ollama server URL')
   .option('--show', 'Show current config')
   .action((options) => {
     if (options.show) {
       const config = loadConfig();
-      console.log('\n  Current config (~/.ai-commit.json):\n');
+      console.log(`\n  Current config (${getConfigPath()}):\n`);
       console.log(gray('  ' + JSON.stringify(config, null, 2).split('\n').join('\n  ')));
       console.log('');
       return;
@@ -127,8 +153,10 @@ program
     if (options.style) config.style = options.style;
     if (options.language) config.language = options.language;
     if (options.emoji) config.emoji = true;
+    if (options.ollamaModel) config.ollamaModel = options.ollamaModel;
+    if (options.ollamaHost) config.ollamaHost = options.ollamaHost;
     saveConfig(config);
-    console.log(green('\n  ✓ Config saved to ~/.ai-commit.json\n'));
+    console.log(green(`\n  ✓ Config saved to ${getConfigPath()}\n`));
   });
 
 // Hook command

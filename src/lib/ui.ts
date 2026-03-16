@@ -41,7 +41,39 @@ export function box(message: string): string {
   return `${gray(top)}\n${content}\n${gray(bottom)}`;
 }
 
-// Prompt user for Y/n/e input
+// Select from commit message suggestions using inquirer
+export async function selectCommitMessage(messages: string[]): Promise<{ action: 'commit'; message: string } | { action: 'edit'; message: string } | { action: 'regenerate' } | { action: 'abort' }> {
+  const { default: select } = await import('@inquirer/select');
+
+  const choices = [
+    ...messages.map((msg, i) => ({
+      name: `${bold(`${i + 1}.`)} ${msg.split('\n')[0]}`,
+      value: `select:${i}`,
+      description: msg.includes('\n') ? gray(msg.split('\n').slice(1).join('\n').trim()) : undefined,
+    })),
+    { name: dim('↻  Regenerate'), value: 'regenerate' },
+    { name: dim('✎  Edit manually'), value: 'edit' },
+    { name: dim('✖  Abort'), value: 'abort' },
+  ];
+
+  const answer = await select({
+    message: 'Pick a commit message:',
+    choices,
+    loop: false,
+  });
+
+  if (answer === 'regenerate') return { action: 'regenerate' };
+  if (answer === 'abort') return { action: 'abort' };
+  if (answer === 'edit') return { action: 'edit', message: messages[0] };
+  if (answer.startsWith('select:')) {
+    const idx = parseInt(answer.split(':')[1]);
+    return { action: 'commit', message: messages[idx] };
+  }
+
+  return { action: 'abort' };
+}
+
+// Prompt user for simple Y/n/e input (kept for --yes mode)
 export async function prompt(question: string): Promise<string> {
   const { createInterface } = await import('readline');
   const rl = createInterface({ input: process.stdin, output: process.stdout });

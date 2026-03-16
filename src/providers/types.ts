@@ -3,4 +3,4 @@ export interface AIProvider {
   generate(prompt: string): Promise<string>;
 }
 
-export type ProviderName = 'anthropic' | 'openai';
+export type ProviderName = 'anthropic' | 'openai' | 'ollama';
