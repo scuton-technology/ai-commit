@@ -10,15 +10,17 @@
     <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/types-TypeScript-3178c6" alt="typescript"></a>
   </p>
   <br>
+  <img src="demo.gif" alt="ai-commit demo" width="800">
+  <br><br>
 </div>
 
 > Stop writing "fix stuff" and "update things". Let AI analyze your diff and generate meaningful conventional commits.
 
 ## Highlights
 
-- Analyzes your `git diff` and generates conventional commit messages
-- Supports **Claude** (Anthropic) and **GPT** (OpenAI)
-- Interactive — approve, regenerate, or edit before committing
+- Generates **3 commit suggestions** — pick the best one interactively
+- Supports **Claude** (Anthropic), **GPT** (OpenAI), and **Ollama** (local, free)
+- Interactive selection UI with arrow keys (powered by inquirer.js)
 - Auto-detect provider from environment variables
 - Emoji support, multiple languages, configurable style
 - Install as git hook for fully automatic commits
@@ -41,16 +43,20 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 # Or OpenAI
 export OPENAI_API_KEY=sk-...
+
+# Or use Ollama (local, no API key needed)
+# Just make sure Ollama is running: ollama serve
+aic --provider ollama
 ```
 
 ## Usage
 
 ```sh
-# Stage changes and generate commit
+# Stage changes and generate commit (3 suggestions)
 git add .
 aic
 
-# Auto-commit without confirmation
+# Auto-commit best suggestion without selection
 aic --yes
 
 # Preview without committing
@@ -58,6 +64,10 @@ aic --dry-run
 
 # Use specific provider
 aic --provider openai
+aic --provider ollama
+
+# Generate 5 suggestions instead of 3
+aic --count 5
 
 # Include emoji
 aic --emoji
@@ -74,8 +84,8 @@ aic --language tr
 1. Reads your staged git diff
 2. Filters lock files, truncates large diffs
 3. Sends diff + file list to AI with commit conventions
-4. Shows suggested message in a box
-5. You choose: **Y** (commit) / **n** (regenerate) / **e** (edit) / **q** (quit)
+4. Generates **3 different suggestions** with different perspectives
+5. You pick one with arrow keys, or: **regenerate** / **edit** / **abort**
 
 ## Commands
 
@@ -84,6 +94,7 @@ aic --language tr
 | `aic` | Generate and commit (default) |
 | `aic config --show` | Show current config |
 | `aic config --provider anthropic` | Set default provider |
+| `aic config --ollama-model codellama` | Set Ollama model |
 | `aic hook` | Install as git hook |
 | `aic hook --remove` | Remove git hook |
 
@@ -91,13 +102,13 @@ aic --language tr
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-p, --provider` | AI provider (anthropic/openai) | auto-detect |
+| `-p, --provider` | AI provider (anthropic/openai/ollama) | auto-detect |
+| `-c, --count` | Number of suggestions (1-5) | 3 |
 | `-s, --style` | conventional or simple | conventional |
 | `-l, --language` | Message language (en, tr, etc.) | en |
 | `-e, --emoji` | Include emoji | false |
 | `-y, --yes` | Auto-commit, no prompt | false |
 | `-n, --dry-run` | Don't commit | false |
-| `-r, --regenerate` | Keep regenerating | false |
 
 ## Git Hook
 
@@ -112,29 +123,39 @@ Now every `git commit` will auto-generate a message. Remove with `aic hook --rem
 ## Programmatic API
 
 ```ts
-import { generateCommitMessage } from '@scuton/ai-commit';
+import { generateCommitMessages } from '@scuton/ai-commit';
 
-const { message, provider } = await generateCommitMessage({
+// Get 3 suggestions
+const { messages, provider } = await generateCommitMessages({
   provider: 'anthropic',
   style: 'conventional',
-  emoji: true,
+  count: 3,
 });
-console.log(message); // "feat(auth): add JWT refresh token flow"
+console.log(messages);
+// [
+//   "feat(auth): add JWT refresh token rotation",
+//   "refactor(auth): improve token handling with automatic refresh",
+//   "feat(security): implement session token rotation"
+// ]
+
+// Or get a single message
+import { generateCommitMessage } from '@scuton/ai-commit';
+const { message } = await generateCommitMessage({ provider: 'openai' });
 ```
 
 ## FAQ
 
 ### Which provider should I use?
 
-Claude (Anthropic) generally produces better conventional commit messages. GPT-4o-mini is faster and cheaper for simple commits.
+Claude (Anthropic) generally produces better conventional commit messages. GPT-4o-mini is faster and cheaper for simple commits. Ollama is free and runs locally — great for privacy-sensitive projects.
 
 ### Does it send my code to the AI?
 
-It sends the git diff (staged changes only) and file names. Lock files are filtered out. Large diffs are truncated to ~8000 chars.
+It sends the git diff (staged changes only) and file names. Lock files are filtered out. Large diffs are truncated to ~8000 chars. With Ollama, everything stays on your machine.
 
 ### Can I use it without an API key?
 
-No. You need either an Anthropic or OpenAI API key. The cost is ~$0.001 per commit.
+Yes! Use Ollama for completely free, local commit generation. Just install Ollama and run `aic --provider ollama`.
 
 ## Related
 
